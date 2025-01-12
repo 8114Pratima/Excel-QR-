@@ -1,0 +1,116 @@
+Sub GenerateUPIQRAndSendEmail_Final()
+    Dim ws As Worksheet
+    Dim LastRow As Long
+    Dim UPIID As String
+    Dim ClientName As String
+    Dim Amount As Double
+    Dim AccountCode As String
+    Dim QRCodeURL As String
+    Dim QRImagePath As String
+    Dim WebClient As Object
+    Dim QRCodeDownloadURL As String
+    Dim OutlookApp As Object
+    Dim OutlookMail As Object
+    Dim i As Long
+    Dim ClientEmail As String
+    Dim HTMLBody As String
+    Dim QRImageAttachment As Object
+    
+    ' Set the worksheet
+    Set ws = ThisWorkbook.Sheets("Sheet1") ' Adjust your sheet name if needed
+    
+    ' Set the last row with data
+    LastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    
+    ' UPI ID to receive payments
+    UPIID = "pratimavishwakarma3@ybl" ' Replace with your actual UPI ID
+    
+    ' Loop through each row and generate the QR code and send the email
+    For i = 2 To LastRow
+        ' Get the client details
+        AccountCode = ws.Cells(i, 1).Value
+        ClientName = ws.Cells(i, 2).Value
+        Amount = ws.Cells(i, 3).Value
+        ClientEmail = ws.Cells(i, 5).Value ' Client email in Column E
+        
+        ' UPI payment URL
+        QRCodeURL = "upi://pay?pa=" & UPIID & "&pn=" & ClientName & "&am=" & Amount & "&cu=INR"
+        
+        ' URL to download the QR code from an online service like "quickchart.io"
+        QRCodeDownloadURL = "https://quickchart.io/qr?text=" & WorksheetFunction.EncodeURL(QRCodeURL) & "&size=150"
+        
+        ' Path to save the QR code image locally
+        QRImagePath = ThisWorkbook.Path & "\upi_qr_code_" & AccountCode & ".png"
+        
+        ' Create a web client to download the QR code image
+        Set WebClient = CreateObject("MSXML2.ServerXMLHTTP")
+        
+        ' Download the QR code
+        On Error GoTo DownloadError
+        WebClient.Open "GET", QRCodeDownloadURL, False
+        WebClient.Send
+        
+        ' Check if the download was successful
+        If WebClient.Status = 200 Then
+            ' Save the image to the specified path
+            Dim FileStream As Object
+            Set FileStream = CreateObject("ADODB.Stream")
+            FileStream.Type = 1 ' Binary
+            FileStream.Open
+            FileStream.Write WebClient.responseBody
+            FileStream.SaveToFile QRImagePath, 2 ' Overwrite if the file exists
+            FileStream.Close
+            
+            ' Success message in the Excel sheet
+            ws.Cells(i, 6).Value = "QR Code generated for " & ClientName
+            
+            ' Send email with QR code
+            Set OutlookApp = CreateObject("Outlook.Application")
+            Set OutlookMail = OutlookApp.CreateItem(0)
+            
+            ' Attach the QR code image as an inline attachment
+            Set QRImageAttachment = OutlookMail.Attachments.Add(QRImagePath)
+            QRImageAttachment.PropertyAccessor.SetProperty "http://schemas.microsoft.com/mapi/proptag/0x3712001F", "QRCodeImage"
+            
+            ' Compose the HTML body of the email
+            HTMLBody = "<html><body>"
+            HTMLBody = HTMLBody & "<p>Dear " & ClientName & ",</p>"
+            HTMLBody = HTMLBody & "<p>Please note that you have a pending debit balance with Centrum Broking Ltd. Kindly clear this amount as soon as possible.</p>"
+            HTMLBody = HTMLBody & "<table border='1' cellpadding='5' cellspacing='0'>"
+            HTMLBody = HTMLBody & "<tr><th>Account Code</th><th>Account Name</th><th>Payment Amount</th></tr>"
+            HTMLBody = HTMLBody & "<tr><td>" & AccountCode & "</td><td>" & ClientName & "</td><td>&#8377;" & Format(Amount, "0.00") & "</td></tr>"
+            HTMLBody = HTMLBody & "</table><br><br>"
+            HTMLBody = HTMLBody & "<p>Scan the QR code below to make the payment of &#8377;" & Format(Amount, "0.00") & ":</p>"
+            HTMLBody = HTMLBody & "<img src='cid:QRCodeImage' width='150' height='150'><br><br>"
+            HTMLBody = HTMLBody & "<p><strong>Important:</strong><br>Please make sure to complete the payment using your registered bank account with Centrum Broking Ltd. Payments from any other bank will not be accepted.<br>If you have any issues, please contact us at support@example.com or call +91-XXX-XXX-XXXX.<br><br>Thank you for your prompt attention to this matter.</p>"
+            HTMLBody = HTMLBody & "<p>Best regards,<br>Centrum Broking Ltd</p>"
+            HTMLBody = HTMLBody & "</body></html>"
+            
+            ' Set up and send the email
+            With OutlookMail
+                .To = ClientEmail
+                .Subject = "Urgent: Payment Due for Account " & AccountCode & " - " & ClientName
+                .HTMLBody = HTMLBody
+                .Display ' Use .Send to send the email directly
+            End With
+            
+        Else
+            ws.Cells(i, 6).Value = "Failed to generate QR Code for AccCode: " & AccountCode
+        End If
+        
+        GoTo NextClient
+        
+DownloadError:
+        ws.Cells(i, 6).Value = "Failed to generate QR Code for AccCode: " & AccountCode
+        Resume NextClient
+        
+NextClient:
+    Next i
+    
+    ' Clean up
+    Set WebClient = Nothing
+    Set OutlookMail = Nothing
+    Set OutlookApp = Nothing
+End Sub
+
+
